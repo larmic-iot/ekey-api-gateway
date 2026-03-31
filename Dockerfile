@@ -18,7 +18,6 @@ WORKDIR /root/
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /go/src/app/main .
-COPY --from=builder /go/src/app/api/openapi.yml api/openapi.yml
 
 EXPOSE 8080
 ENTRYPOINT ["./main"]

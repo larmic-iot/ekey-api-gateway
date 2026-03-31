@@ -10,10 +10,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/larmic-iot/ekey-api-gateway/api"
 	"github.com/larmic-iot/ekey-api-gateway/internal/auth"
 	"github.com/larmic-iot/ekey-api-gateway/internal/client"
 	"github.com/larmic-iot/ekey-api-gateway/internal/config"
 	"github.com/larmic-iot/ekey-api-gateway/internal/handler"
+	"github.com/larmic-iot/ekey-api-gateway/internal/middleware"
 )
 
 func main() {
@@ -32,8 +34,10 @@ func main() {
 	mux := http.NewServeMux()
 
 	// OpenAPI
-	openAPIHandler := handler.NewOpenAPIHandler("api/openapi.yml")
-	mux.HandleFunc("GET /openapi", openAPIHandler.ServeHTTP)
+	mux.HandleFunc("GET /openapi", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/yaml")
+		w.Write(api.OpenAPISpec)
+	})
 
 	// Health
 	mux.HandleFunc("GET /health", healthHandler.Health)
@@ -53,7 +57,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.ServerPort),
-		Handler:      mux,
+		Handler:      middleware.CORSMiddleware(mux),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
