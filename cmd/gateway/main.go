@@ -96,12 +96,20 @@ func main() {
 			}
 			slog.Info("discovery complete", "systemId", state.SystemID(), "deviceId", state.DeviceID())
 
-			// Step 3: Initialize MobileClient (load existing or register new)
+			// Step 3: Load info cache (user, systems, devices)
+			if err := infoHandler.Load(); err != nil {
+				slog.Error("info load failed", "error", err)
+			}
+
+			// Step 4: Initialize MobileClient (load existing or register new)
 			if err := mobileClient.Init(); err != nil {
 				slog.Error("mobile client initialization failed", "error", err)
 				return
 			}
 			slog.Info("mobile client ready")
+
+			// Step 5: Start periodic info refresh (every 5 minutes)
+			go infoHandler.RunRefresh(ctx, 5*time.Minute)
 		}()
 	} else {
 		slog.Info("no credentials configured, use POST /oauth/login to authenticate")
