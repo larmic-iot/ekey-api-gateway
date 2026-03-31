@@ -41,10 +41,25 @@ func (h *InfoHandler) Info(w http.ResponseWriter, _ *http.Request) {
 
 	systems := make([]map[string]any, 0, len(userAndSystems.UserSystems))
 	for _, sys := range userAndSystems.UserSystems {
+		devices, err := h.fetchDevices(sys.SystemID)
+		if err != nil {
+			slog.Error("fetching devices failed", "systemId", sys.SystemID, "error", err)
+			devices = nil
+		}
+
+		deviceList := make([]map[string]any, 0, len(devices))
+		for _, d := range devices {
+			deviceList = append(deviceList, map[string]any{
+				"id":   d.ID,
+				"name": d.Name,
+			})
+		}
+
 		systems = append(systems, map[string]any{
 			"systemId":  sys.SystemID,
 			"created":   sys.Created,
 			"onboarded": sys.Onboarded,
+			"devices":   deviceList,
 		})
 	}
 
@@ -59,9 +74,6 @@ func (h *InfoHandler) Info(w http.ResponseWriter, _ *http.Request) {
 			"email":       userAndSystems.User.Email,
 		},
 		"systems": systems,
-		"device": map[string]any{
-			"deviceId": h.state.DeviceID(),
-		},
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -111,4 +123,42 @@ func (h *InfoHandler) fetchUserAndSystems() (*userAndSystemsResponse, error) {
 	}
 
 	return &result, nil
+}
+
+type deviceOverviewEntry struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func (h *InfoHandler) fetchDevices(systemID string) ([]deviceOverviewEntry, error) {
+	url := fmt.Sprintf("%s/api/System/%s/Device/overview?api-version=%s", h.cfg.APIBase, systemID, h.cfg.APIVersion)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+h.state.AccessToken())
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned %d", resp.StatusCode)
+	}
+
+	var devices []deviceOverviewEntry
+	if err := json.Unmarshal(body, &devices); err != nil {
+		return nil, err
+	}
+
+	return devices, nil
 }
