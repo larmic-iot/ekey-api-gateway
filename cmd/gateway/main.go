@@ -27,6 +27,7 @@ func main() {
 	healthHandler := handler.NewHealthHandler(state)
 	oauthHandler := handler.NewOAuthHandler(oauth, state)
 	proxyHandler := handler.NewProxyHandler(state, cfg)
+	infoHandler := handler.NewInfoHandler(state, cfg)
 
 	mux := http.NewServeMux()
 
@@ -34,6 +35,9 @@ func main() {
 	mux.HandleFunc("GET /health", healthHandler.Health)
 	mux.HandleFunc("GET /health/ready", healthHandler.Ready)
 	mux.HandleFunc("GET /health/live", healthHandler.Live)
+
+	// Info
+	mux.HandleFunc("GET /info", infoHandler.Info)
 
 	// OAuth
 	mux.HandleFunc("POST /oauth/login", oauthHandler.Login)
