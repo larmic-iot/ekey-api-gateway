@@ -1,0 +1,382 @@
+openapi: 3.0.3
+info:
+  title: ekey API Gateway
+  description: |
+    API-Gateway für das ekey bionyx Smart-Lock-System.
+    Übernimmt OAuth2-Authentifizierung, Token-Management und leitet
+    authentifizierte Anfragen an die ekey bionyx Backend-API weiter.
+  version: 1.0.0
+  license:
+    name: Apache 2.0
+
+servers:
+  - url: http://localhost:8080
+    description: Lokale Entwicklung (Docker Compose)
+
+tags:
+  - name: Health
+    description: Health-Check-Endpunkte
+  - name: Info
+    description: Benutzer-, System- und Geräteinformationen
+  - name: Authentication
+    description: OAuth2-Authentifizierung
+  - name: Proxy
+    description: Transparenter Proxy zur ekey bionyx API
+
+paths:
+  /openapi:
+    get:
+      summary: OpenAPI-Spezifikation
+      tags: [Health]
+      responses:
+        "200":
+          description: OpenAPI 3.0.3 YAML-Dokument
+
+  /health:
+    get:
+      summary: Allgemeiner Health-Status
+      tags: [Health]
+      responses:
+        "200":
+          description: Service läuft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /health/live:
+    get:
+      summary: Liveness-Probe
+      tags: [Health]
+      responses:
+        "200":
+          description: Service ist erreichbar
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /health/ready:
+    get:
+      summary: Readiness-Probe
+      tags: [Health]
+      description: Gibt UP zurück wenn authentifiziert, sonst DOWN.
+      responses:
+        "200":
+          description: Authentifiziert und bereit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+        "503":
+          description: Nicht authentifiziert
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+
+  /info:
+    get:
+      summary: Benutzer-, Auth- und System-/Geräteinformationen
+      tags: [Info]
+      description: |
+        Gibt gecachte Benutzerprofile, Authentifizierungsstatus und
+        alle Systeme mit zugehörigen Geräten zurück.
+      responses:
+        "200":
+          description: Informationen geladen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InfoResponse"
+        "503":
+          description: Nicht authentifiziert oder Informationen noch nicht geladen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /oauth/login:
+    post:
+      summary: Login mit E-Mail und Passwort
+      tags: [Authentication]
+      description: |
+        Führt den vollständigen Azure AD B2C Login-Flow mit PKCE durch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login erfolgreich
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "400":
+          description: Ungültiger Request-Body oder fehlende Zugangsdaten
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Login beim Upstream fehlgeschlagen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /oauth/callback:
+    post:
+      summary: Manueller OAuth-Callback
+      tags: [Authentication]
+      description: |
+        Akzeptiert eine Redirect-URL aus einem manuellen Browser-Login-Flow.
+        Extrahiert den Authorization-Code aus der msal://-Redirect-URL.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CallbackRequest"
+      responses:
+        "200":
+          description: Code erfolgreich eingetauscht
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "400":
+          description: Ungültige URL oder fehlender Code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Code-Austausch fehlgeschlagen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /oauth/refresh:
+    post:
+      summary: Token-Refresh erzwingen
+      tags: [Authentication]
+      responses:
+        "200":
+          description: Token erfolgreich erneuert
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "502":
+          description: Token-Refresh fehlgeschlagen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /proxy/{path}:
+    get:
+      summary: GET-Anfrage an ekey bionyx API weiterleiten
+      tags: [Proxy]
+      description: |
+        Entfernt das /proxy-Präfix und leitet die Anfrage an
+        https://bionyx-prod.azurefd.net weiter. Fügt automatisch
+        den Bearer-Token und api-version=6.5 hinzu.
+      parameters:
+        - $ref: "#/components/parameters/ProxyPath"
+      responses:
+        "200":
+          description: Antwort vom Upstream
+        "503":
+          description: Nicht authentifiziert
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      summary: POST-Anfrage an ekey bionyx API weiterleiten
+      tags: [Proxy]
+      parameters:
+        - $ref: "#/components/parameters/ProxyPath"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Antwort vom Upstream
+        "503":
+          description: Nicht authentifiziert
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      summary: PUT-Anfrage an ekey bionyx API weiterleiten
+      tags: [Proxy]
+      parameters:
+        - $ref: "#/components/parameters/ProxyPath"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Antwort vom Upstream
+        "503":
+          description: Nicht authentifiziert
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      summary: DELETE-Anfrage an ekey bionyx API weiterleiten
+      tags: [Proxy]
+      parameters:
+        - $ref: "#/components/parameters/ProxyPath"
+      responses:
+        "200":
+          description: Antwort vom Upstream
+        "503":
+          description: Nicht authentifiziert
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  parameters:
+    ProxyPath:
+      name: path
+      in: path
+      required: true
+      description: API-Pfad (z.B. api/User/UserAndSystems)
+      schema:
+        type: string
+      example: api/User/UserAndSystems
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [UP]
+      example:
+        status: UP
+
+    ReadyResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [UP, DOWN]
+        auth:
+          type: string
+          enum: [not_authenticated, awaiting_code, authenticated, token_expired]
+      example:
+        status: UP
+        auth: authenticated
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+      example:
+        email: user@example.com
+        password: geheim
+
+    CallbackRequest:
+      type: object
+      required: [redirect_url]
+      properties:
+        redirect_url:
+          type: string
+      example:
+        redirect_url: "msal3312a901-79fb-469a-8d79-861787550778://auth?code=AUTHORIZATION_CODE"
+
+    TokenResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        token_type:
+          type: string
+        expires_in:
+          type: integer
+      example:
+        message: login successful
+        token_type: Bearer
+        expires_in: 3600
+
+    InfoResponse:
+      type: object
+      properties:
+        auth:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [not_authenticated, awaiting_code, authenticated, token_expired]
+            expiresIn:
+              type: integer
+              description: Sekunden bis Token abläuft
+        user:
+          $ref: "#/components/schemas/User"
+        systems:
+          type: array
+          items:
+            $ref: "#/components/schemas/System"
+
+    User:
+      type: object
+      properties:
+        userId:
+          type: string
+        displayName:
+          type: string
+        email:
+          type: string
+
+    System:
+      type: object
+      properties:
+        systemId:
+          type: string
+        created:
+          type: string
+        onboarded:
+          type: boolean
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/Device"
+
+    Device:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      example:
+        error: not authenticated

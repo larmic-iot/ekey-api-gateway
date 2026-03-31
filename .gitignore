@@ -5,3 +5,4 @@ http-client.private.env.json
 /gateway
 ekey-client.json
 *.raw-response.json
+.env

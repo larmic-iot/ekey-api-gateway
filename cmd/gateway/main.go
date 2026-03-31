@@ -31,6 +31,10 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	// OpenAPI
+	openAPIHandler := handler.NewOpenAPIHandler("api/openapi.yml")
+	mux.HandleFunc("GET /openapi", openAPIHandler.ServeHTTP)
+
 	// Health
 	mux.HandleFunc("GET /health", healthHandler.Health)
 	mux.HandleFunc("GET /health/ready", healthHandler.Ready)
