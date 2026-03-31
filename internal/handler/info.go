@@ -39,6 +39,15 @@ func (h *InfoHandler) Info(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
+	systems := make([]map[string]any, 0, len(userAndSystems.UserSystems))
+	for _, sys := range userAndSystems.UserSystems {
+		systems = append(systems, map[string]any{
+			"systemId":  sys.SystemID,
+			"created":   sys.Created,
+			"onboarded": sys.Onboarded,
+		})
+	}
+
 	response := map[string]any{
 		"auth": map[string]any{
 			"status":    h.state.Status().String(),
@@ -49,18 +58,10 @@ func (h *InfoHandler) Info(w http.ResponseWriter, _ *http.Request) {
 			"displayName": userAndSystems.User.DisplayName,
 			"email":       userAndSystems.User.Email,
 		},
+		"systems": systems,
 		"device": map[string]any{
 			"deviceId": h.state.DeviceID(),
 		},
-	}
-
-	if len(userAndSystems.UserSystems) > 0 {
-		sys := userAndSystems.UserSystems[0]
-		response["system"] = map[string]any{
-			"systemId":  sys.SystemID,
-			"owner":     sys.Owner.Name,
-			"onboarded": sys.Onboarded,
-		}
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -73,11 +74,9 @@ type userAndSystemsResponse struct {
 		Email       string `json:"email"`
 	} `json:"user"`
 	UserSystems []struct {
-		SystemID string `json:"systemId"`
-		Owner    struct {
-			Name string `json:"name"`
-		} `json:"owner"`
-		Onboarded bool `json:"onboarded"`
+		SystemID  string `json:"systemId"`
+		Created   string `json:"created"`
+		Onboarded bool   `json:"onboarded"`
 	} `json:"userSystems"`
 }
 
