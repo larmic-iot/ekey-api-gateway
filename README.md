@@ -25,16 +25,18 @@ The ekey bionyx system provides a mobile app for managing fingerprint-based door
 
 The gateway is configured via environment variables:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SERVER_PORT` | `8080` | HTTP server port |
-| `EKEY_EMAIL` | | ekey account email (enables auto-login) |
-| `EKEY_PASSWORD` | | ekey account password (enables auto-login) |
-| `EKEY_SYSTEM_ID` | *(built-in)* | Your ekey system ID |
-| `EKEY_DEVICE_ID` | *(built-in)* | Target device ID |
-| `EKEY_CLIENT_ID` | *(built-in)* | OAuth2 client ID |
-| `TOKEN_REFRESH_INTERVAL` | `60` | Token refresh check interval in seconds |
-| `EKEY_CLIENT_KEY_FILE` | `ekey-client.json` | Path to persisted client keys |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `EKEY_EMAIL` | **yes** | | ekey account email |
+| `EKEY_PASSWORD` | **yes** | | ekey account password |
+| `SERVER_PORT` | no | `8080` | HTTP server port |
+| `EKEY_SYSTEM_ID` | no | *(auto-discovered)* | Your ekey system ID |
+| `EKEY_DEVICE_ID` | no | *(auto-discovered)* | Target device ID |
+| `EKEY_CLIENT_ID` | no | *(built-in)* | OAuth2 client ID |
+| `TOKEN_REFRESH_INTERVAL` | no | `60` | Token refresh check interval in seconds |
+| `EKEY_CLIENT_KEY_FILE` | no | `ekey-client.json` | Path to persisted client keys |
+
+The gateway will fail to start if `EKEY_EMAIL` or `EKEY_PASSWORD` are not set, or if the login fails.
 
 ## Quick Start
 
@@ -66,13 +68,11 @@ docker run --rm -p 8080:8080 \
 | GET | `/health/ready` | Readiness probe (authenticated?) |
 | GET | `/health/live` | Liveness probe |
 
-### Authentication
+### Info
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/oauth/login` | Login with email and password |
-| POST | `/oauth/callback` | Manual OAuth callback (fallback for browser-based flow) |
-| POST | `/oauth/refresh` | Force token refresh |
+| GET | `/info` | Cached user, system and device information |
 
 ### Proxy
 

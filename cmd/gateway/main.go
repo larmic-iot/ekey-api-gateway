@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -21,15 +22,37 @@ import (
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})))
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal("configuration error: ", err)
+	}
+
 	state := auth.NewState()
 	oauth := auth.NewOAuthClient(cfg, state)
-	mobileClient := client.NewMobileClientService(cfg, state)
+	discovery := client.NewDiscoveryService(cfg, state)
+
+	// Step 1: Login
+	slog.Info("logging in")
+	resp, err := oauth.LoginWithCredentials(cfg.Email, cfg.Password)
+	if err != nil {
+		log.Fatal("login failed: ", err)
+	}
+	slog.Info("login successful", "expires_in", resp.ExpiresIn)
+
+	// Step 2: Discover systemID and deviceID from API
+	if err := discovery.Discover(); err != nil {
+		log.Fatal("discovery failed: ", err)
+	}
+	slog.Info("discovery complete", "systemId", state.SystemID(), "deviceId", state.DeviceID())
 
 	healthHandler := handler.NewHealthHandler(state)
-	oauthHandler := handler.NewOAuthHandler(oauth, state)
 	proxyHandler := handler.NewProxyHandler(state, cfg)
 	infoHandler := handler.NewInfoHandler(state, cfg)
+
+	// Step 4: Load info cache (user, systems, devices)
+	if err := infoHandler.Load(); err != nil {
+		slog.Error("info load failed", "error", err)
+	}
 
 	mux := http.NewServeMux()
 
@@ -46,11 +69,6 @@ func main() {
 
 	// Info
 	mux.HandleFunc("GET /info", infoHandler.Info)
-
-	// OAuth
-	mux.HandleFunc("POST /oauth/login", oauthHandler.Login)
-	mux.HandleFunc("POST /oauth/callback", oauthHandler.Callback)
-	mux.HandleFunc("POST /oauth/refresh", oauthHandler.Refresh)
 
 	// Proxy
 	mux.HandleFunc("/proxy/", proxyHandler.Handle)
@@ -69,6 +87,9 @@ func main() {
 	refresher := auth.NewRefresher(oauth, state, cfg.TokenRefreshInterval)
 	go refresher.Run(ctx)
 
+	// Periodic info refresh (every 5 minutes)
+	go infoHandler.RunRefresh(ctx, 5*time.Minute)
+
 	// Graceful shutdown
 	go func() {
 		sigCh := make(chan os.Signal, 1)
@@ -81,47 +102,7 @@ func main() {
 		server.Shutdown(shutdownCtx)
 	}()
 
-	discovery := client.NewDiscoveryService(cfg, state)
-
 	slog.Info("starting ekey bionyx API gateway", "port", cfg.ServerPort)
-
-	// Auto-login, discovery and MobileClient initialization
-	if cfg.Email != "" && cfg.Password != "" {
-		slog.Info("auto-login enabled")
-		go func() {
-			// Step 1: Login
-			resp, err := oauth.LoginWithCredentials(cfg.Email, cfg.Password)
-			if err != nil {
-				slog.Error("auto-login failed", "error", err)
-				return
-			}
-			slog.Info("auto-login successful", "expires_in", resp.ExpiresIn)
-
-			// Step 2: Discover systemID and deviceID from API
-			if err := discovery.Discover(); err != nil {
-				slog.Error("discovery failed", "error", err)
-				return
-			}
-			slog.Info("discovery complete", "systemId", state.SystemID(), "deviceId", state.DeviceID())
-
-			// Step 3: Load info cache (user, systems, devices)
-			if err := infoHandler.Load(); err != nil {
-				slog.Error("info load failed", "error", err)
-			}
-
-			// Step 4: Initialize MobileClient (load existing or register new)
-			if err := mobileClient.Init(); err != nil {
-				slog.Error("mobile client initialization failed", "error", err)
-				return
-			}
-			slog.Info("mobile client ready")
-
-			// Step 5: Start periodic info refresh (every 5 minutes)
-			go infoHandler.RunRefresh(ctx, 5*time.Minute)
-		}()
-	} else {
-		slog.Info("no credentials configured, use POST /oauth/login to authenticate")
-	}
 
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		slog.Error("server error", "error", err)

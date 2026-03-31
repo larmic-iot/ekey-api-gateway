@@ -49,7 +49,6 @@ func (c *OAuthClient) LoginWithCredentials(email, password string) (*TokenRespon
 		return nil, fmt.Errorf("generating state: %w", err)
 	}
 
-	c.state.SetAwaitingCode(verifier, stateParam)
 	challenge := crypto.GenerateCodeChallenge(verifier)
 
 	// Cookie jar to maintain session across requests
@@ -193,14 +192,6 @@ func (c *OAuthClient) LoginWithCredentials(email, password string) (*TokenRespon
 
 	// Step 4: Exchange auth code for tokens
 	return c.exchangeCodeWithVerifier(authCode, verifier)
-}
-
-func (c *OAuthClient) ExchangeCode(code string) (*TokenResponse, error) {
-	verifier := c.state.CodeVerifier()
-	if verifier == "" {
-		return nil, fmt.Errorf("no pending PKCE flow, call /oauth/login first")
-	}
-	return c.exchangeCodeWithVerifier(code, verifier)
 }
 
 func (c *OAuthClient) exchangeCodeWithVerifier(code, verifier string) (*TokenResponse, error) {

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 )
@@ -22,15 +23,25 @@ type Config struct {
 	APIVersion           string
 }
 
-func Load() Config {
+func Load() (Config, error) {
+	email := os.Getenv("EKEY_EMAIL")
+	if email == "" {
+		return Config{}, fmt.Errorf("EKEY_EMAIL is required")
+	}
+
+	password := os.Getenv("EKEY_PASSWORD")
+	if password == "" {
+		return Config{}, fmt.Errorf("EKEY_PASSWORD is required")
+	}
+
 	return Config{
 		ServerPort:           envInt("SERVER_PORT", 8080),
 		ClientID:             env("EKEY_CLIENT_ID", "3312a901-79fb-469a-8d79-861787550778"),
 		SystemID:             os.Getenv("EKEY_SYSTEM_ID"),
 		DeviceID:             os.Getenv("EKEY_DEVICE_ID"),
 		TokenRefreshInterval: envInt("TOKEN_REFRESH_INTERVAL", 60),
-		Email:                os.Getenv("EKEY_EMAIL"),
-		Password:             os.Getenv("EKEY_PASSWORD"),
+		Email:                email,
+		Password:             password,
 		ClientKeyFile:        env("EKEY_CLIENT_KEY_FILE", "ekey-client.json"),
 		Scope:                "https://ekeybionyxprod.onmicrosoft.com/bionyx-web-prod/user_impersonation openid profile offline_access",
 		RedirectURI:          "msal3312a901-79fb-469a-8d79-861787550778://auth",
@@ -38,7 +49,7 @@ func Load() Config {
 		AuthorizeURL:         "https://ekeybionyxprod.b2clogin.com/tfp/ekeybionyxprod.onmicrosoft.com/b2c_1_susi_v2/oauth2/v2.0/authorize",
 		APIBase:              "https://bionyx-prod.azurefd.net",
 		APIVersion:           "6.5",
-	}
+	}, nil
 }
 
 func env(key, fallback string) string {

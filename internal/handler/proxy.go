@@ -27,7 +27,7 @@ func NewProxyHandler(state *auth.State, cfg config.Config) *ProxyHandler {
 
 func (h *ProxyHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	if h.state.Status() != auth.Authenticated {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "not authenticated, call /oauth/login first"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "not authenticated"})
 		return
 	}
 

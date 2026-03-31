@@ -9,7 +9,6 @@ type Status int
 
 const (
 	NotAuthenticated Status = iota
-	AwaitingCode
 	Authenticated
 	TokenExpired
 )
@@ -18,8 +17,6 @@ func (s Status) String() string {
 	switch s {
 	case NotAuthenticated:
 		return "not_authenticated"
-	case AwaitingCode:
-		return "awaiting_code"
 	case Authenticated:
 		return "authenticated"
 	case TokenExpired:
@@ -34,8 +31,6 @@ type State struct {
 	accessToken  string
 	refreshToken string
 	expiresAt    time.Time
-	codeVerifier string
-	state        string
 	systemID     string
 	deviceID     string
 }
@@ -48,11 +43,8 @@ func (s *State) Status() Status {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if s.accessToken == "" && s.codeVerifier == "" {
+	if s.accessToken == "" {
 		return NotAuthenticated
-	}
-	if s.accessToken == "" && s.codeVerifier != "" {
-		return AwaitingCode
 	}
 	if time.Now().After(s.expiresAt) {
 		if s.refreshToken != "" {
@@ -63,21 +55,12 @@ func (s *State) Status() Status {
 	return Authenticated
 }
 
-func (s *State) SetAwaitingCode(codeVerifier, state string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.codeVerifier = codeVerifier
-	s.state = state
-}
-
 func (s *State) UpdateTokens(accessToken, refreshToken string, expiresIn int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.accessToken = accessToken
 	s.refreshToken = refreshToken
 	s.expiresAt = time.Now().Add(time.Duration(expiresIn) * time.Second)
-	s.codeVerifier = ""
-	s.state = ""
 }
 
 func (s *State) AccessToken() string {
@@ -90,18 +73,6 @@ func (s *State) RefreshToken() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.refreshToken
-}
-
-func (s *State) CodeVerifier() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.codeVerifier
-}
-
-func (s *State) ExpectedState() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.state
 }
 
 func (s *State) ExpiresIn() time.Duration {

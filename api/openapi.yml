@@ -3,8 +3,9 @@ info:
   title: ekey API Gateway
   description: |
     API-Gateway für das ekey bionyx Smart-Lock-System.
-    Übernimmt OAuth2-Authentifizierung, Token-Management und leitet
-    authentifizierte Anfragen an die ekey bionyx Backend-API weiter.
+    Authentifizierung erfolgt automatisch beim Start über die Umgebungsvariablen
+    EKEY_EMAIL und EKEY_PASSWORD (Azure AD B2C mit PKCE).
+    Token-Refresh wird automatisch im Hintergrund durchgeführt.
   version: 1.0.0
   license:
     name: Apache 2.0
@@ -18,8 +19,6 @@ tags:
     description: Health-Check-Endpunkte
   - name: Info
     description: Benutzer-, System- und Geräteinformationen
-  - name: Authentication
-    description: OAuth2-Authentifizierung
   - name: Proxy
     description: Transparenter Proxy zur ekey bionyx API
 
@@ -91,89 +90,6 @@ paths:
                 $ref: "#/components/schemas/InfoResponse"
         "503":
           description: Nicht authentifiziert oder Informationen noch nicht geladen
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /oauth/login:
-    post:
-      summary: Login mit E-Mail und Passwort
-      tags: [Authentication]
-      description: |
-        Führt den vollständigen Azure AD B2C Login-Flow mit PKCE durch.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/LoginRequest"
-      responses:
-        "200":
-          description: Login erfolgreich
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TokenResponse"
-        "400":
-          description: Ungültiger Request-Body oder fehlende Zugangsdaten
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "502":
-          description: Login beim Upstream fehlgeschlagen
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /oauth/callback:
-    post:
-      summary: Manueller OAuth-Callback
-      tags: [Authentication]
-      description: |
-        Akzeptiert eine Redirect-URL aus einem manuellen Browser-Login-Flow.
-        Extrahiert den Authorization-Code aus der msal://-Redirect-URL.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CallbackRequest"
-      responses:
-        "200":
-          description: Code erfolgreich eingetauscht
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TokenResponse"
-        "400":
-          description: Ungültige URL oder fehlender Code
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "502":
-          description: Code-Austausch fehlgeschlagen
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /oauth/refresh:
-    post:
-      summary: Token-Refresh erzwingen
-      tags: [Authentication]
-      responses:
-        "200":
-          description: Token erfolgreich erneuert
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TokenResponse"
-        "502":
-          description: Token-Refresh fehlgeschlagen
           content:
             application/json:
               schema:
@@ -280,47 +196,10 @@ components:
           enum: [UP, DOWN]
         auth:
           type: string
-          enum: [not_authenticated, awaiting_code, authenticated, token_expired]
+          enum: [not_authenticated, authenticated, token_expired]
       example:
         status: UP
         auth: authenticated
-
-    LoginRequest:
-      type: object
-      required: [email, password]
-      properties:
-        email:
-          type: string
-          format: email
-        password:
-          type: string
-          format: password
-      example:
-        email: user@example.com
-        password: geheim
-
-    CallbackRequest:
-      type: object
-      required: [redirect_url]
-      properties:
-        redirect_url:
-          type: string
-      example:
-        redirect_url: "msal3312a901-79fb-469a-8d79-861787550778://auth?code=AUTHORIZATION_CODE"
-
-    TokenResponse:
-      type: object
-      properties:
-        message:
-          type: string
-        token_type:
-          type: string
-        expires_in:
-          type: integer
-      example:
-        message: login successful
-        token_type: Bearer
-        expires_in: 3600
 
     InfoResponse:
       type: object
@@ -330,7 +209,7 @@ components:
           properties:
             status:
               type: string
-              enum: [not_authenticated, awaiting_code, authenticated, token_expired]
+              enum: [not_authenticated, authenticated, token_expired]
             expiresIn:
               type: integer
               description: Sekunden bis Token abläuft
