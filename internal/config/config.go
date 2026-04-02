@@ -11,10 +11,12 @@ type Config struct {
 	ClientID             string
 	SystemID             string
 	DeviceID             string
+	FunctionID           string
 	TokenRefreshInterval int // seconds
 	Email                string
 	Password             string
 	ClientKeyFile        string
+	SharedSecret         string // base64-encoded, from EKEY_SHARED_SECRET
 	Scope                string
 	RedirectURI          string
 	TokenURL             string
@@ -39,10 +41,12 @@ func Load() (Config, error) {
 		ClientID:             env("EKEY_CLIENT_ID", "3312a901-79fb-469a-8d79-861787550778"),
 		SystemID:             os.Getenv("EKEY_SYSTEM_ID"),
 		DeviceID:             os.Getenv("EKEY_DEVICE_ID"),
+		FunctionID:           os.Getenv("EKEY_FUNCTION_ID"),
 		TokenRefreshInterval: envInt("TOKEN_REFRESH_INTERVAL", 60),
 		Email:                email,
 		Password:             password,
 		ClientKeyFile:        env("EKEY_CLIENT_KEY_FILE", "ekey-client.json"),
+		SharedSecret:         os.Getenv("EKEY_SHARED_SECRET"),
 		Scope:                "https://ekeybionyxprod.onmicrosoft.com/bionyx-web-prod/user_impersonation openid profile offline_access",
 		RedirectURI:          "msal3312a901-79fb-469a-8d79-861787550778://auth",
 		TokenURL:             "https://ekeybionyxprod.b2clogin.com/tfp/ekeybionyxprod.onmicrosoft.com/b2c_1_susi_v2/oauth2/v2.0/token",

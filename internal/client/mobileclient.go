@@ -26,7 +26,7 @@ type ClientKeys struct {
 	DeviceID     string `json:"deviceId"`
 	PrivateKey   string `json:"privateKey"`
 	PublicKey    string `json:"publicKey"`
-	SharedSecret string `json:"sharedSecret"`
+	SharedSecret string `json:"sharedSecret,omitempty"`
 	KeyHash      string `json:"keyHash"`
 	CreatedAt    string `json:"createdAt"`
 }
@@ -49,11 +49,22 @@ func (s *MobileClientService) Init() error {
 	// Try loading existing keys
 	if err := s.loadKeys(); err == nil {
 		slog.Info("loaded existing mobile client keys", "deviceId", s.keys.DeviceID, "keyHash", s.keys.KeyHash)
+		s.injectSharedSecretFromConfig()
 		return nil
 	}
 
 	slog.Info("no existing keys found, registering new mobile client")
-	return s.register()
+	if err := s.register(); err != nil {
+		return err
+	}
+
+	s.injectSharedSecretFromConfig()
+	return nil
+}
+
+// Ready returns true if keys and shared secret are available for door opening.
+func (s *MobileClientService) Ready() bool {
+	return s.keys != nil && len(s.secret) > 0
 }
 
 // Keys returns the loaded client keys (nil if not initialized).
@@ -61,9 +72,42 @@ func (s *MobileClientService) Keys() *ClientKeys {
 	return s.keys
 }
 
-// SharedSecret returns the raw shared secret bytes.
+// RSAKey returns the RSA private key.
+func (s *MobileClientService) RSAKey() *rsa.PrivateKey {
+	return s.rsaKey
+}
+
+// SharedSecretBytes returns the raw shared secret bytes.
 func (s *MobileClientService) SharedSecretBytes() []byte {
 	return s.secret
+}
+
+// injectSharedSecretFromConfig sets the shared secret from the EKEY_SHARED_SECRET env var
+// if it is configured and the keys don't already have one.
+func (s *MobileClientService) injectSharedSecretFromConfig() {
+	if len(s.secret) > 0 {
+		slog.Info("shared secret already available", "size", len(s.secret))
+		return
+	}
+
+	if s.cfg.SharedSecret == "" {
+		slog.Warn("no shared secret available (door opening unavailable). Set EKEY_SHARED_SECRET to provide one.")
+		return
+	}
+
+	secret, err := base64.StdEncoding.DecodeString(s.cfg.SharedSecret)
+	if err != nil {
+		slog.Error("failed to decode EKEY_SHARED_SECRET", "error", err)
+		return
+	}
+
+	s.secret = secret
+	s.keys.SharedSecret = s.cfg.SharedSecret
+	slog.Info("shared secret injected from EKEY_SHARED_SECRET", "size", len(secret))
+
+	if err := s.saveKeys(); err != nil {
+		slog.Error("failed to persist injected shared secret", "error", err)
+	}
 }
 
 func (s *MobileClientService) loadKeys() error {
@@ -87,15 +131,19 @@ func (s *MobileClientService) loadKeys() error {
 		return fmt.Errorf("parsing private key: %w", err)
 	}
 
-	// Restore shared secret
-	secret, err := base64.StdEncoding.DecodeString(keys.SharedSecret)
-	if err != nil {
-		return fmt.Errorf("decoding shared secret: %w", err)
-	}
-
 	s.keys = &keys
 	s.rsaKey = rsaKey
-	s.secret = secret
+
+	// Restore shared secret (optional — may not be available yet)
+	if keys.SharedSecret != "" {
+		secret, err := base64.StdEncoding.DecodeString(keys.SharedSecret)
+		if err != nil {
+			slog.Warn("failed to decode shared secret from key file", "error", err)
+		} else {
+			s.secret = secret
+		}
+	}
+
 	return nil
 }
 
@@ -117,6 +165,10 @@ func (s *MobileClientService) register() error {
 	}
 	pubB64 := base64.StdEncoding.EncodeToString(pubDER)
 
+	// Compute keyHash: SHA-256 of the public key DER bytes
+	keyHashRaw := sha256.Sum256(pubDER)
+	keyHash := base64.StdEncoding.EncodeToString(keyHashRaw[:])
+
 	// Generate a unique device ID for this client
 	deviceUUID := generateUUID()
 
@@ -124,7 +176,7 @@ func (s *MobileClientService) register() error {
 	registerReq := map[string]string{
 		"DeviceId":   deviceUUID,
 		"DeviceTyp":  "Physical",
-		"DeviceName": "ekey-gateway",
+		"DeviceName": "iPhone",
 		"PublicKey":  pubB64,
 		"Created":    time.Now().Format("2006-01-02T15:04:05.000000-07:00"),
 	}
@@ -152,83 +204,19 @@ func (s *MobileClientService) register() error {
 		return fmt.Errorf("registration returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	slog.Info("mobile client registered, response size", "bytes", len(body))
-	slog.Debug("registration response", "body", string(body))
+	slog.Info("mobile client registered", "response", string(body))
 
-	// Parse response - we need to find the encrypted shared secret
-	var registerResp map[string]any
-	if err := json.Unmarshal(body, &registerResp); err != nil {
-		// Response might not be JSON - log it for analysis
-		slog.Warn("response is not JSON, raw response logged", "raw_b64", base64.StdEncoding.EncodeToString(body))
-		return fmt.Errorf("parsing registration response: %w (raw: %s)", err, string(body))
-	}
-
-	slog.Info("registration response parsed", "keys", fmt.Sprintf("%v", keysOf(registerResp)))
-
-	// Try to find the encrypted secret in the response
-	// It could be in various fields - let's try common ones
-	var encryptedSecret []byte
-	for _, key := range []string{"encryptedSecret", "secret", "sharedSecret", "Secret", "EncryptedSecret", "key", "Key"} {
-		if val, ok := registerResp[key]; ok {
-			if str, ok := val.(string); ok {
-				encryptedSecret, _ = base64.StdEncoding.DecodeString(str)
-				if len(encryptedSecret) > 0 {
-					slog.Info("found encrypted secret", "field", key, "size", len(encryptedSecret))
-					break
-				}
-			}
-		}
-	}
-
-	// If no known field, log the full response for manual analysis
-	if len(encryptedSecret) == 0 {
-		// Save the raw response for analysis
-		slog.Warn("could not find encrypted secret in response, saving raw response for analysis")
-		rawFile := s.cfg.ClientKeyFile + ".raw-response.json"
-		os.WriteFile(rawFile, body, 0600)
-		slog.Info("raw response saved", "file", rawFile)
-
-		// Still save the keys (without shared secret) so we can analyze the response
-		keys := &ClientKeys{
-			DeviceID:   deviceUUID,
-			PrivateKey: base64.StdEncoding.EncodeToString(x509.MarshalPKCS1PrivateKey(rsaKey)),
-			PublicKey:  pubB64,
-			CreatedAt:  time.Now().Format(time.RFC3339),
-		}
-		s.keys = keys
-		s.rsaKey = rsaKey
-		s.saveKeys()
-		return fmt.Errorf("registered but could not extract shared secret - check %s", rawFile)
-	}
-
-	// Decrypt the shared secret with our RSA private key
-	secret, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, rsaKey, encryptedSecret, nil)
-	if err != nil {
-		// Try PKCS1v15 decryption as fallback
-		secret, err = rsa.DecryptPKCS1v15(rand.Reader, rsaKey, encryptedSecret)
-		if err != nil {
-			return fmt.Errorf("decrypting shared secret failed (tried OAEP and PKCS1v15): %w", err)
-		}
-	}
-
-	slog.Info("shared secret decrypted", "size", len(secret))
-
-	// Compute keyHash (for identification in payloads)
-	keyHashRaw := sha256.Sum256(secret)
-	keyHash := base64.StdEncoding.EncodeToString(keyHashRaw[:])
-
+	// Save keys (shared secret will be injected later via EKEY_SHARED_SECRET or mitmproxy)
 	keys := &ClientKeys{
-		DeviceID:     deviceUUID,
-		PrivateKey:   base64.StdEncoding.EncodeToString(x509.MarshalPKCS1PrivateKey(rsaKey)),
-		PublicKey:    pubB64,
-		SharedSecret: base64.StdEncoding.EncodeToString(secret),
-		KeyHash:      keyHash,
-		CreatedAt:    time.Now().Format(time.RFC3339),
+		DeviceID:   deviceUUID,
+		PrivateKey: base64.StdEncoding.EncodeToString(x509.MarshalPKCS1PrivateKey(rsaKey)),
+		PublicKey:  pubB64,
+		KeyHash:    keyHash,
+		CreatedAt:  time.Now().Format(time.RFC3339),
 	}
 
 	s.keys = keys
 	s.rsaKey = rsaKey
-	s.secret = secret
 
 	return s.saveKeys()
 }
@@ -247,12 +235,4 @@ func generateUUID() string {
 	rand.Read(b)
 	return fmt.Sprintf("%08X-%04X-%04X-%04X-%012X",
 		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
-}
-
-func keysOf(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
 }

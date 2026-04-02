@@ -19,6 +19,8 @@ tags:
     description: Health-Check-Endpunkte
   - name: Info
     description: Benutzer-, System- und Geräteinformationen
+  - name: Door
+    description: Türöffnung
   - name: Proxy
     description: Transparenter Proxy zur ekey bionyx API
 
@@ -94,6 +96,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+
+  /door/open:
+    post:
+      summary: Tür öffnen
+      tags: [Door]
+      description: |
+        Sendet einen verschlüsselten Befehl an das ekey-Gerät zum Öffnen der Tür.
+        Erfordert eine aktive MobileClient-Registrierung mit gültigem Shared Secret
+        (EKEY_SHARED_SECRET).
+      responses:
+        "200":
+          description: Tür geöffnet
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                example:
+                  status: ok
+        "500":
+          description: Fehler beim Senden des Befehls
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Nicht bereit (Secret fehlt oder nicht authentifiziert)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoorNotReadyResponse"
+
+  /door/status:
+    get:
+      summary: Status der Türöffnung
+      tags: [Door]
+      description: Zeigt an ob die Türöffnung verfügbar ist.
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoorStatusResponse"
 
   /proxy/{path}:
     get:
@@ -251,6 +300,28 @@ components:
           type: string
         name:
           type: string
+
+    DoorStatusResponse:
+      type: object
+      properties:
+        ready:
+          type: boolean
+        reason:
+          type: string
+      example:
+        ready: false
+        reason: "shared secret not configured (set EKEY_SHARED_SECRET)"
+
+    DoorNotReadyResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        reason:
+          type: string
+      example:
+        error: "door opening not available"
+        reason: "shared secret not configured (set EKEY_SHARED_SECRET)"
 
     ErrorResponse:
       type: object

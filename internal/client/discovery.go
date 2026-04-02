@@ -54,6 +54,21 @@ func (d *DiscoveryService) Discover() error {
 	}
 	d.state.SetDeviceID(deviceID)
 
+	// Discover functionID
+	functionID := d.cfg.FunctionID
+	if functionID == "" {
+		var err error
+		functionID, err = d.fetchFunctionID(systemID)
+		if err != nil {
+			slog.Warn("discovering functionID failed (door opening may be unavailable)", "error", err)
+		}
+	} else {
+		slog.Info("using functionID from config override", "functionId", functionID)
+	}
+	if functionID != "" {
+		d.state.SetFunctionID(functionID)
+	}
+
 	return nil
 }
 
@@ -105,6 +120,30 @@ func (d *DiscoveryService) fetchDeviceID(systemID string) (string, error) {
 	deviceID := devices[0].DeviceID
 	slog.Info("discovered deviceID", "deviceId", deviceID)
 	return deviceID, nil
+}
+
+func (d *DiscoveryService) fetchFunctionID(systemID string) (string, error) {
+	url := fmt.Sprintf("%s/api/System/%s/Function/overview?api-version=%s", d.cfg.APIBase, systemID, d.cfg.APIVersion)
+
+	body, err := d.apiGet(url)
+	if err != nil {
+		return "", err
+	}
+
+	var functions []struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(body, &functions); err != nil {
+		return "", fmt.Errorf("parsing Function/overview response: %w", err)
+	}
+
+	if len(functions) == 0 {
+		return "", fmt.Errorf("no functions found in system %s", systemID)
+	}
+
+	functionID := fmt.Sprintf("%d", functions[0].ID)
+	slog.Info("discovered functionID", "functionId", functionID)
+	return functionID, nil
 }
 
 var discoveryClient = &http.Client{Timeout: 30 * time.Second}

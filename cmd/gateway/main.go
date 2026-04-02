@@ -39,15 +39,24 @@ func main() {
 	}
 	slog.Info("login successful", "expires_in", resp.ExpiresIn)
 
-	// Step 2: Discover systemID and deviceID from API
+	// Step 2: Discover systemID, deviceID, and functionID from API
 	if err := discovery.Discover(); err != nil {
 		log.Fatal("discovery failed: ", err)
 	}
-	slog.Info("discovery complete", "systemId", state.SystemID(), "deviceId", state.DeviceID())
+	slog.Info("discovery complete", "systemId", state.SystemID(), "deviceId", state.DeviceID(), "functionId", state.FunctionID())
+
+	// Step 3: Register/load mobile client keys
+	mobileClient := client.NewMobileClientService(cfg, state)
+	if err := mobileClient.Init(); err != nil {
+		slog.Warn("mobile client init failed (door opening unavailable)", "error", err)
+	}
+
+	doorService := client.NewDoorService(cfg, state, mobileClient)
 
 	healthHandler := handler.NewHealthHandler(state)
 	proxyHandler := handler.NewProxyHandler(state, cfg)
 	infoHandler := handler.NewInfoHandler(state, cfg)
+	doorHandler := handler.NewDoorHandler(doorService)
 
 	// Step 4: Load info cache (user, systems, devices)
 	if err := infoHandler.Load(); err != nil {
@@ -69,6 +78,10 @@ func main() {
 
 	// Info
 	mux.HandleFunc("GET /info", infoHandler.Info)
+
+	// Door
+	mux.HandleFunc("POST /door/open", doorHandler.Open)
+	mux.HandleFunc("GET /door/status", doorHandler.Status)
 
 	// Proxy
 	mux.HandleFunc("/proxy/", proxyHandler.Handle)

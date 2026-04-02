@@ -33,6 +33,7 @@ type State struct {
 	expiresAt    time.Time
 	systemID     string
 	deviceID     string
+	functionID   string
 }
 
 func NewState() *State {
@@ -103,4 +104,16 @@ func (s *State) DeviceID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.deviceID
+}
+
+func (s *State) SetFunctionID(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.functionID = id
+}
+
+func (s *State) FunctionID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.functionID
 }
